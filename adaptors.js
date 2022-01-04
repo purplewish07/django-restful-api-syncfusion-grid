@@ -1742,7 +1742,7 @@ var WebApiAdaptor = /** @class */ (function (_super) {
     WebApiAdaptor.prototype.remove = function (dm, keyField, value, tableName) {
         return {
             type: 'DELETE',
-            url: dm.dataSource.url + '' + value + '/',
+            url: dm.dataSource.url + '/' + value,
             data: JSON.stringify(value)
         };
     };
@@ -1756,7 +1756,7 @@ var WebApiAdaptor = /** @class */ (function (_super) {
     WebApiAdaptor.prototype.update = function (dm, keyField, value, tableName) {
         return {
             type: 'PUT',
-            url: dm.dataSource.url + DataUtil.getObject(keyField, value) + '/',
+            url: dm.dataSource.url,
             data: JSON.stringify(value)
         };
     };
@@ -2397,3 +2397,192 @@ var CacheAdaptor = /** @class */ (function (_super) {
     return CacheAdaptor;
 }(UrlAdaptor));
 export { CacheAdaptor };
+/**
+ * DRF API
+ * The Web API is a programmatic interface to define the request and response messages system that is mostly exposed in JSON or XML.
+ * The DataManager uses the WebApiAdaptor to consume Web API.
+ * Since this adaptor is targeted to interact with Web API created using OData endpoint, it is extended from ODataAdaptor
+ * @hidden
+ */
+var DRFApiAdaptor = /** @class */ (function (_super) {
+    __extends(DRFApiAdaptor, _super);
+    function DRFApiAdaptor() {
+        return _super !== null && _super.apply(this, arguments) || this;
+    }
+    DRFApiAdaptor.prototype.getModuleName = function () {
+        return 'DRFApiAdaptor';
+    };
+    /**
+     * Prepare and returns request body which is used to insert a new record in the table.
+     * @param  {DataManager} dm
+     * @param  {Object} data
+     * @param  {string} tableName?
+     */
+    DRFApiAdaptor.prototype.insert = function (dm, data, tableName) {
+        return {
+            type: 'POST',
+            url: dm.dataSource.url,
+            data: JSON.stringify(data)
+        };
+    };
+    /**
+     * Prepare and return request body which is used to remove record from the table.
+     * @param  {DataManager} dm
+     * @param  {string} keyField
+     * @param  {number} value
+     * @param  {string} tableName?
+     */
+    DRFApiAdaptor.prototype.remove = function (dm, keyField, value, tableName) {
+        return {
+            type: 'DELETE',
+            url: dm.dataSource.url + '' + value + '/',
+            data: JSON.stringify(value)
+        };
+    };
+    /**
+     * Prepare and return request body which is used to update record.
+     * @param  {DataManager} dm
+     * @param  {string} keyField
+     * @param  {Object} value
+     * @param  {string} tableName?
+     */
+    DRFApiAdaptor.prototype.update = function (dm, keyField, value, tableName) {
+        return {
+            type: 'PUT',
+            url: dm.dataSource.url + DataUtil.getObject(keyField, value) + '/',
+            data: JSON.stringify(value)
+        };
+    };
+    DRFApiAdaptor.prototype.batchRequest = function (dm, changes, e) {
+        var _this = this;
+        var initialGuid = e.guid = DataUtil.getGuid(this.options.batchPre);
+        var url = dm.dataSource.url.replace(/\/*$/, '/' + this.options.batch);
+        e.url = this.resourceTableName ? this.resourceTableName : e.url;
+        var req = [];
+        var _loop_1 = function (i, x) {
+            changes.addedRecords.forEach(function (j, d) {
+                var stat = {
+                    'method': 'POST ',
+                    'url': function (data, i, key) { return ''; },
+                    'data': function (data, i) { return JSON.stringify(data[i]) + '\n\n'; }
+                };
+                req.push('--' + initialGuid);
+                req.push('Content-Type: application/http; msgtype=request', '');
+                req.push('POST ' + '/api/' + (dm.dataSource.insertUrl || dm.dataSource.crudUrl || e.url)
+                    + stat.url(changes.addedRecords, i, e.key) + ' HTTP/1.1');
+                req.push('Content-Type: ' + 'application/json; charset=utf-8');
+                req.push('Host: ' + location.host);
+                req.push('', j ? JSON.stringify(j) : '');
+            });
+        };
+        //insertion
+        for (var i = 0, x = changes.addedRecords.length; i < x; i++) {
+            _loop_1(i, x);
+        }
+        var _loop_2 = function (i, x) {
+            changes.changedRecords.forEach(function (j, d) {
+                var stat = {
+                    'method': _this.options.updateType + ' ',
+                    'url': function (data, i, key) { return ''; },
+                    'data': function (data, i) { return JSON.stringify(data[i]) + '\n\n'; }
+                };
+                req.push('--' + initialGuid);
+                req.push('Content-Type: application/http; msgtype=request', '');
+                req.push('PUT ' + '/api/' + (dm.dataSource.updateUrl || dm.dataSource.crudUrl || e.url)
+                    + stat.url(changes.changedRecords, i, e.key) + ' HTTP/1.1');
+                req.push('Content-Type: ' + 'application/json; charset=utf-8');
+                req.push('Host: ' + location.host);
+                req.push('', j ? JSON.stringify(j) : '');
+            });
+        };
+        //updation 
+        for (var i = 0, x = changes.changedRecords.length; i < x; i++) {
+            _loop_2(i, x);
+        }
+        var _loop_3 = function (i, x) {
+            changes.deletedRecords.forEach(function (j, d) {
+                var state = {
+                    'mtd': 'DELETE ',
+                    'url': function (data, i, key) {
+                        var url = DataUtil.getObject(key, data[i]);
+                        if (typeof url === 'number' || DataUtil.parse.isGuid(url)) {
+                            return '/' + url;
+                        }
+                        else if (url instanceof Date) {
+                            var datTime = data[i][key];
+                            return '/' + datTime.toJSON();
+                        }
+                        else {
+                            return "/'" + url + "'";
+                        }
+                    },
+                    'data': function (data, i) { return ''; }
+                };
+                req.push('--' + initialGuid);
+                req.push('Content-Type: application/http; msgtype=request', '');
+                req.push('DELETE ' + '/api/' + (dm.dataSource.removeUrl || dm.dataSource.crudUrl || e.url)
+                    + state.url(changes.deletedRecords, i, e.key) + ' HTTP/1.1');
+                req.push('Content-Type: ' + 'application/json; charset=utf-8');
+                req.push('Host: ' + location.host);
+                req.push('', j ? JSON.stringify(j) : '');
+            });
+        };
+        //deletion
+        for (var i = 0, x = changes.deletedRecords.length; i < x; i++) {
+            _loop_3(i, x);
+        }
+        req.push('--' + initialGuid + '--', '');
+        return {
+            type: 'POST',
+            url: url,
+            contentType: 'multipart/mixed; boundary=' + initialGuid,
+            data: req.join('\r\n')
+        };
+    };
+    /**
+     * Method will trigger before send the request to server side.
+     * Used to set the custom header or modify the request options.
+     * @param  {DataManager} dm
+     * @param  {XMLHttpRequest} request
+     * @param  {Ajax} settings
+     * @returns void
+     */
+    DRFApiAdaptor.prototype.beforeSend = function (dm, request, settings) {
+        request.setRequestHeader('Accept', 'application/json, text/javascript, */*; q=0.01');
+    };
+    /**
+     * Returns the data from the query processing.
+     * @param  {DataResult} data
+     * @param  {DataOptions} ds?
+     * @param  {Query} query?
+     * @param  {XMLHttpRequest} xhr?
+     * @param  {Ajax} request?
+     * @param  {CrudOptions} changes?
+     * @returns aggregateResult
+     */
+    DRFApiAdaptor.prototype.processResponse = function (data, ds, query, xhr, request, changes) {
+        var pvtData = 'pvtData';
+        var pvt = request && request[pvtData];
+        var count = null;
+        var args = {};
+        if (request && request.type.toLowerCase() !== 'post') {
+            var versionCheck = xhr && request.getResponseHeader('DataServiceVersion');
+            var version = (versionCheck && parseInt(versionCheck, 10)) || 2;
+            if (query && query.isCountRequired) {
+                if (!DataUtil.isNull(data.Count)) {
+                    count = data.Count;
+                }
+            }
+            if (version < 3 && data.Items) {
+                data = data.Items;
+            }
+            args.count = count;
+            args.result = data;
+            this.getAggregateResult(pvt, data, args, null, query);
+        }
+        args.result = args.result || data;
+        return DataUtil.isNull(count) ? args.result : { result: args.result, count: args.count, aggregates: args.aggregates };
+    };
+    return DRFApiAdaptor;
+}(ODataAdaptor));
+export { DRFApiAdaptor };
